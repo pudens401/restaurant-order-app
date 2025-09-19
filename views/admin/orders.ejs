@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Orders</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+  <div class="max-w-6xl mx-auto py-8">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">Orders</h1>
+      <a href="/admin/dashboard" class="px-4 py-2 bg-gray-700 text-white rounded-lg shadow">
+        ⬅ Back to Dashboard
+      </a>
+    </div>
+
+    <% if (orders.length === 0) { %>
+      <p class="text-gray-500">No orders yet.</p>
+    <% } %>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <% orders.forEach(order => { %>
+        <div class="bg-white rounded-xl shadow p-6">
+          <h3 class="text-lg font-bold mb-2">Table <%= order.tableNumber %></h3>
+          <ul class="mb-3 space-y-1">
+            <% order.items.forEach(i => { %>
+              <li class="flex justify-between text-sm text-gray-700">
+                <span><%= i.menuItem.name %> × <%= i.quantity %></span>
+                <span><%= (i.menuItem.price * i.quantity).toLocaleString() %> RWF</span>
+              </li>
+            <% }) %>
+          </ul>
+          <p class="font-semibold mb-2">Total: <%= order.total.toLocaleString() %> RWF</p>
+          
+          <form method="POST" action="/admin/orders/update/<%= order._id %>" class="flex gap-2 items-center">
+            <select name="status" class="border rounded px-2 py-1">
+              <option value="pending" <%= order.status === "pending" ? "selected" : "" %>>Pending</option>
+              <option value="served" <%= order.status === "served" ? "selected" : "" %>>Served</option>
+              <option value="paid" <%= order.status === "paid" ? "selected" : "" %>>Paid</option>
+            </select>
+            <button type="submit" class="px-3 py-1 bg-blue-600 text-white rounded">Update</button>
+          </form>
+
+          <p class="text-xs text-gray-400 mt-3">
+            Created: <%= new Date(order.createdAt).toLocaleString() %>
+          </p>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Manage Menu</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    function openModal(id) {
+      document.getElementById(id).classList.remove("hidden");
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.add("hidden");
+    }
+  </script>
+</head>
+<body class="bg-gray-100">
+  <div class="max-w-6xl mx-auto py-8">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">Manage Menu</h1>
+      <div class="flex gap-2">
+        <a href="/admin/dashboard" class="px-4 py-2 bg-gray-700 text-white rounded-lg shadow">
+          ⬅ Back to Dashboard
+        </a>
+        <button onclick="openModal('createModal')" class="px-4 py-2 bg-blue-600 text-white rounded-lg shadow">
+          + Add Item
+        </button>
+      </div>
+    </div>
+
+    <!-- Items Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <% items.forEach(item => { %>
+        <div class="bg-white rounded-xl shadow p-4">
+          <img src="<%= item.photo %>" alt="<%= item.name %>" class="w-full h-40 object-cover rounded-lg mb-4">
+          <h3 class="text-lg font-bold"><%= item.name %></h3>
+          <p class="text-gray-600"><%= item.price.toLocaleString() %> RWF</p>
+          <p class="text-sm text-gray-400 mb-3"><%= item.category %></p>
+          <div class="flex gap-2">
+            <button onclick="openModal('editModal-<%= item._id %>')" 
+              class="px-3 py-1 bg-yellow-500 text-white rounded">Edit</button>
+            <form method="POST" action="/admin/menu/delete/<%= item._id %>" onsubmit="return confirm('Delete this item?')">
+              <button type="submit" class="px-3 py-1 bg-red-600 text-white rounded">Delete</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Edit Modal -->
+        <div id="editModal-<%= item._id %>" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+          <div class="bg-white p-6 rounded-xl w-96">
+            <h2 class="text-xl font-bold mb-4">Edit Item</h2>
+            <form method="POST" action="/admin/menu/edit/<%= item._id %>">
+              <input type="text" name="name" value="<%= item.name %>" class="w-full border rounded px-3 py-2 mb-3" required>
+              <input type="number" name="price" value="<%= item.price %>" step="0.01" class="w-full border rounded px-3 py-2 mb-3" required>
+              <input type="text" name="photo" value="<%= item.photo %>" class="w-full border rounded px-3 py-2 mb-3" required>
+              <input type="text" name="category" value="<%= item.category %>" class="w-full border rounded px-3 py-2 mb-3">
+              <div class="flex justify-end gap-2">
+                <button type="button" onclick="closeModal('editModal-<%= item._id %>')" class="px-3 py-1 border rounded">Cancel</button>
+                <button type="submit" class="px-3 py-1 bg-blue-600 text-white rounded">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+
+  <!-- Create Modal -->
+  <div id="createModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+    <div class="bg-white p-6 rounded-xl w-96">
+      <h2 class="text-xl font-bold mb-4">Add Menu Item</h2>
+      <form method="POST" action="/admin/menu/add">
+        <input type="text" name="name" placeholder="Name" class="w-full border rounded px-3 py-2 mb-3" required>
+        <input type="number" name="price" placeholder="Price" step="0.01" class="w-full border rounded px-3 py-2 mb-3" required>
+        <input type="text" name="photo" placeholder="Photo URL" class="w-full border rounded px-3 py-2 mb-3" required>
+        <input type="text" name="category" placeholder="Category (optional)" class="w-full border rounded px-3 py-2 mb-3">
+        <div class="flex justify-end gap-2">
+          <button type="button" onclick="closeModal('createModal')" class="px-3 py-1 border rounded">Cancel</button>
+          <button type="submit" class="px-3 py-1 bg-green-600 text-white rounded">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

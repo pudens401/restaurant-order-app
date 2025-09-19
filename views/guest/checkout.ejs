@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checkout - Restaurant Order</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    async function processCheckout(event) {
+      event.preventDefault();
+      
+      const formData = new FormData(event.target);
+      const tableNumber = formData.get('tableNumber');
+      
+      if (!tableNumber || tableNumber < 1) {
+        alert('Please provide a valid table number');
+        return;
+      }
+      
+      // Disable submit button
+      const submitBtn = document.getElementById('submit-btn');
+      const originalText = submitBtn.textContent;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Processing...';
+      
+      try {
+        const response = await fetch('/checkout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ tableNumber: parseInt(tableNumber) })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          window.location.href = `/order-confirmation/${result.orderId}`;
+        } else {
+          alert('Error: ' + result.error);
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText;
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('Error processing order');
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-50">
+  <!-- Header -->
+  <header class="bg-white shadow-sm border-b">
+    <div class="max-w-6xl mx-auto px-4 py-4">
+      <div class="flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-gray-800">Checkout</h1>
+        <a href="/cart" class="text-blue-600 hover:text-blue-800 font-medium">
+          ← Back to Cart
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Checkout Content -->
+  <main class="max-w-4xl mx-auto px-4 py-8">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      
+      <!-- Order Summary -->
+      <div class="bg-white rounded-xl shadow-md p-6">
+        <h2 class="text-xl font-bold mb-6">Order Summary</h2>
+        
+        <div class="space-y-3 mb-6">
+          <% cart.forEach(item => { %>
+            <div class="flex justify-between items-center py-2 border-b">
+              <div class="flex items-center gap-3">
+                <img src="<%= item.photo %>" alt="<%= item.name %>" 
+                     class="w-12 h-12 object-cover rounded">
+                <div>
+                  <h3 class="font-medium"><%= item.name %></h3>
+                  <p class="text-sm text-gray-500">× <%= item.quantity %></p>
+                </div>
+              </div>
+              <span class="font-medium">
+                <%= (item.price * item.quantity).toLocaleString() %> RWF
+              </span>
+            </div>
+          <% }) %>
+        </div>
+        
+        <div class="border-t pt-4">
+          <div class="flex justify-between items-center text-xl font-bold">
+            <span>Total:</span>
+            <span class="text-blue-600"><%= total.toLocaleString() %> RWF</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Checkout Form -->
+      <div class="bg-white rounded-xl shadow-md p-6">
+        <h2 class="text-xl font-bold mb-6">Complete Your Order</h2>
+        
+        <form onsubmit="processCheckout(event)" class="space-y-6">
+          <div>
+            <label for="tableNumber" class="block text-sm font-medium text-gray-700 mb-2">
+              Table Number *
+            </label>
+            <input type="number" 
+                   id="tableNumber" 
+                   name="tableNumber" 
+                   min="1" 
+                   max="100"
+                   class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
+                   placeholder="Enter your table number"
+                   required>
+            <p class="text-sm text-gray-500 mt-1">
+              Please enter the number of the table where you're seated
+            </p>
+          </div>
+          
+          <div class="bg-gray-50 p-4 rounded-lg">
+            <h3 class="font-medium text-gray-800 mb-2">Order Instructions:</h3>
+            <ul class="text-sm text-gray-600 space-y-1">
+              <li>• Your order will be prepared and delivered to your table</li>
+              <li>• Estimated preparation time: 15-30 minutes</li>
+              <li>• Payment can be made when your order is delivered</li>
+            </ul>
+          </div>
+          
+          <button type="submit" 
+                  id="submit-btn"
+                  class="w-full bg-green-600 text-white py-3 px-6 rounded-lg hover:bg-green-700 transition-colors font-medium">
+            Place Order
+          </button>
+        </form>
+        
+        <div class="mt-6 pt-6 border-t">
+          <p class="text-sm text-gray-500 text-center">
+            By placing this order, you confirm that the table number is correct and you're ready to receive your order.
+          </p>
+        </div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
