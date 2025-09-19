@@ -4,6 +4,7 @@ const bcrypt = require("bcrypt");
 const User = require("../models/User");
 const MenuItem = require("../models/MenuItem");
 const Order = require("../models/Order");
+const MQTTTester = require("../utils/mqttTest");
 
 // ---------- Middleware: Require Login ----------
 function requireLogin(req, res, next) {
@@ -115,6 +116,48 @@ router.post("/orders/update/:id", requireLogin, async (req, res) => {
   const { status } = req.body;
   await Order.findByIdAndUpdate(req.params.id, { status });
   res.redirect("/admin/orders");
+});
+
+// ---------- IoT TESTING ROUTES ----------
+
+// IoT Status and Testing Page
+router.get("/iot", requireLogin, (req, res) => {
+  const mqttStatus = MQTTTester.getStatus();
+  res.render("admin/iot", { mqttStatus });
+});
+
+// Test MQTT new order publication
+router.post("/iot/test-new-order", requireLogin, async (req, res) => {
+  try {
+    const result = await MQTTTester.testNewOrder();
+    res.json({ 
+      success: result, 
+      message: result ? 'Test order published successfully' : 'Failed to publish test order' 
+    });
+  } catch (error) {
+    res.json({ success: false, message: 'Error: ' + error.message });
+  }
+});
+
+// Test MQTT order completion
+router.post("/iot/test-order-done", requireLogin, async (req, res) => {
+  try {
+    const { orderId, format } = req.body;
+    let result;
+    
+    if (format === 'simple') {
+      result = MQTTTester.testOrderCompletionSimple(orderId);
+    } else {
+      result = MQTTTester.testOrderCompletion(orderId);
+    }
+    
+    res.json({ 
+      success: result, 
+      message: result ? 'Test completion message sent' : 'Failed to send test completion' 
+    });
+  } catch (error) {
+    res.json({ success: false, message: 'Error: ' + error.message });
+  }
 });
 
 module.exports = router;

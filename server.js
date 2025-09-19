@@ -11,6 +11,9 @@ const guestRoutes = require("./routes/guest");
 //const orderRoutes = require("./routes/order");
 const session = require("cookie-session");
 
+// Import MQTT service
+const mqttService = require("./services/mqttService");
+
 const app = express();
 
 // ---------- Session Setup ----------
@@ -46,10 +49,35 @@ mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => {
+.then(async () => {
   console.log("✅ Connected to MongoDB");
-  app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
+  
+  // Initialize MQTT service for IoT integration
+  try {
+    await mqttService.connect();
+  } catch (error) {
+    console.error("❌ MQTT connection failed:", error);
+    console.log("⚠️  Server will continue without IoT integration");
+  }
+  
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`📡 IoT Integration: ${mqttService.isClientConnected() ? 'ENABLED' : 'DISABLED'}`);
+  });
 })
 .catch(err => {
   console.error("❌ MongoDB connection error:", err);
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n🛑 Shutting down gracefully...');
+  mqttService.disconnect();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n🛑 Shutting down gracefully...');
+  mqttService.disconnect();
+  process.exit(0);
 });

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>IoT Integration - Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    async function testNewOrder() {
+      const btn = document.getElementById('test-new-order-btn');
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Testing...';
+      
+      try {
+        const response = await fetch('/admin/iot/test-new-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const result = await response.json();
+        
+        showResult(result.success, result.message);
+      } catch (error) {
+        showResult(false, 'Network error: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
+
+    async function testOrderCompletion() {
+      const orderId = document.getElementById('order-id-input').value;
+      const format = document.getElementById('format-select').value;
+      
+      if (!orderId) {
+        alert('Please enter an Order ID');
+        return;
+      }
+      
+      const btn = document.getElementById('test-completion-btn');
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Testing...';
+      
+      try {
+        const response = await fetch('/admin/iot/test-order-done', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId, format })
+        });
+        const result = await response.json();
+        
+        showResult(result.success, result.message);
+      } catch (error) {
+        showResult(false, 'Network error: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
+
+    function showResult(success, message) {
+      const resultDiv = document.getElementById('test-results');
+      resultDiv.className = `p-4 rounded-lg mb-4 ${success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
+      resultDiv.textContent = message;
+      resultDiv.style.display = 'block';
+      
+      setTimeout(() => {
+        resultDiv.style.display = 'none';
+      }, 5000);
+    }
+
+    function refreshStatus() {
+      window.location.reload();
+    }
+
+    // Auto-refresh status every 30 seconds
+    setInterval(refreshStatus, 30000);
+  </script>
+</head>
+<body class="bg-gray-100">
+  <div class="max-w-6xl mx-auto py-8 px-4">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">IoT Integration Dashboard</h1>
+      <div class="flex gap-2">
+        <button onclick="refreshStatus()" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">
+          🔄 Refresh Status
+        </button>
+        <a href="/admin/dashboard" class="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800">
+          ⬅ Back to Dashboard
+        </a>
+      </div>
+    </div>
+
+    <!-- Test Results -->
+    <div id="test-results" class="p-4 rounded-lg mb-4" style="display: none;"></div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      
+      <!-- MQTT Status -->
+      <div class="bg-white rounded-xl shadow-md p-6">
+        <h2 class="text-xl font-bold mb-4">MQTT Connection Status</h2>
+        
+        <div class="space-y-3">
+          <div class="flex items-center gap-3">
+            <span class="w-3 h-3 rounded-full <%= mqttStatus.connected ? 'bg-green-500' : 'bg-red-500' %>"></span>
+            <span class="font-medium">
+              <%= mqttStatus.connected ? 'Connected' : 'Disconnected' %>
+            </span>
+          </div>
+          
+          <div class="bg-gray-50 p-4 rounded-lg">
+            <h3 class="font-semibold mb-2">MQTT Topics:</h3>
+            <div class="text-sm space-y-1">
+              <div>📤 <strong>New Orders:</strong> <code class="bg-gray-200 px-2 py-1 rounded"><%= mqttStatus.topics.newOrder %></code></div>
+              <div>📥 <strong>Order Done:</strong> <code class="bg-gray-200 px-2 py-1 rounded"><%= mqttStatus.topics.orderDone %></code></div>
+            </div>
+          </div>
+          
+          <div class="text-sm text-gray-600">
+            <p><strong>Note:</strong> When customers place orders, they are automatically published to IoT devices.</p>
+            <p>IoT devices can send completion messages to update order status.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Testing Tools -->
+      <div class="bg-white rounded-xl shadow-md p-6">
+        <h2 class="text-xl font-bold mb-4">Testing Tools</h2>
+        
+        <div class="space-y-6">
+          <!-- Test New Order Publication -->
+          <div class="border rounded-lg p-4">
+            <h3 class="font-semibold mb-2">📤 Test New Order Publication</h3>
+            <p class="text-sm text-gray-600 mb-3">
+              Simulates publishing a new order to IoT devices on topic: <code>KY/RESTO/ORDER/NEW</code>
+            </p>
+            <button id="test-new-order-btn" 
+                    onclick="testNewOrder()" 
+                    class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+                    <%= !mqttStatus.connected ? 'disabled' : '' %>>
+              📡 Test New Order
+            </button>
+          </div>
+
+          <!-- Test Order Completion -->
+          <div class="border rounded-lg p-4">
+            <h3 class="font-semibold mb-2">📥 Test Order Completion</h3>
+            <p class="text-sm text-gray-600 mb-3">
+              Simulates an IoT device marking an order as complete on topic: <code>KY/RESTO/ORDER/DONE</code>
+            </p>
+            
+            <div class="space-y-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Order ID:</label>
+                <input type="text" 
+                       id="order-id-input" 
+                       placeholder="Enter order ID to mark as done"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Message Format:</label>
+                <select id="format-select" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="json">JSON Format: {"orderId": "..."}</option>
+                  <option value="simple">Simple Format: order_id_string</option>
+                </select>
+              </div>
+              
+              <button id="test-completion-btn" 
+                      onclick="testOrderCompletion()" 
+                      class="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors"
+                      <%= !mqttStatus.connected ? 'disabled' : '' %>>
+                🍳 Test Order Completion
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <% if (!mqttStatus.connected) { %>
+          <div class="mt-4 p-3 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded-lg">
+            <strong>⚠️ MQTT Disconnected:</strong> Check your MQTT broker configuration in the .env file.
+          </div>
+        <% } %>
+      </div>
+    </div>
+
+    <!-- Integration Guide -->
+    <div class="mt-8 bg-white rounded-xl shadow-md p-6">
+      <h2 class="text-xl font-bold mb-4">📖 IoT Integration Guide</h2>
+      
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="font-semibold mb-2">🔄 How It Works</h3>
+          <ol class="text-sm space-y-1 list-decimal list-inside text-gray-700">
+            <li>Customer places order through the website</li>
+            <li>Server publishes order details to <code>KY/RESTO/ORDER/NEW</code></li>
+            <li>Kitchen IoT devices receive and display the order</li>
+            <li>When cooking is done, device sends order ID to <code>KY/RESTO/ORDER/DONE</code></li>
+            <li>Server automatically updates order status to "served"</li>
+          </ol>
+        </div>
+        
+        <div>
+          <h3 class="font-semibold mb-2">⚙️ MQTT Configuration</h3>
+          <div class="text-sm space-y-2 text-gray-700">
+            <p><strong>Broker:</strong> Configure in .env file</p>
+            <p><strong>QoS:</strong> Messages sent with QoS 1</p>
+            <p><strong>Format:</strong> JSON for new orders, flexible for completion</p>
+            <p><strong>Topics:</strong></p>
+            <ul class="ml-4 space-y-1">
+              <li>• <code>KY/RESTO/ORDER/NEW</code> (publish only)</li>
+              <li>• <code>KY/RESTO/ORDER/DONE</code> (subscribe only)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

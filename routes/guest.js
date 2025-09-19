@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const MenuItem = require("../models/MenuItem");
 const Order = require("../models/Order");
+const mqttService = require("../services/mqttService");
 
 // Home route - redirect to menu
 router.get("/", (req, res) => {
@@ -200,6 +201,18 @@ router.post("/checkout", async (req, res) => {
     });
 
     await order.save();
+
+    // Populate the order with menu item details for MQTT publishing
+    const populatedOrder = await Order.findById(order._id).populate('items.menuItem');
+
+    // Publish new order to MQTT for IoT devices
+    try {
+      await mqttService.publishNewOrder(populatedOrder);
+      console.log(`📤 MQTT: New order published for Table ${tableNumber}`);
+    } catch (mqttError) {
+      console.error('❌ MQTT: Failed to publish new order:', mqttError);
+      // Don't fail the order if MQTT fails, just log the error
+    }
 
     // Clear cart after successful order
     req.session.cart = [];
