@@ -139,31 +139,35 @@ class MQTTService {
     }
 
     try {
-      // Prepare order data for IoT devices (optimized for size)
+      // Minimal order data - ONLY what Arduino reads (optimized for ESP8266 memory)
       const orderData = {
         orderId: order._id.toString(),
         tableNumber: order.tableNumber,
         items: order.items.map(item => ({
-          name: item.menuItem.name.length > 30 ? 
-                item.menuItem.name.substring(0, 30) + '...' : 
-                item.menuItem.name, // Truncate long names
-          quantity: item.quantity,
-          notes: item.notes || ''
-        })),
-        timestamp: new Date().toISOString(),
-        total: order.total
+          name: item.menuItem.name.length > 15 ? 
+                item.menuItem.name.substring(0, 15) : 
+                item.menuItem.name, // Truncate to fit LCD display (20 chars max)
+          quantity: item.quantity
+          // Removed: notes, not used by Arduino
+          // Removed: price, not displayed by Arduino
+        }))
+        // Removed: timestamp, not used by Arduino
+        // Removed: total, not displayed by Arduino
+        // Removed: status, not used by Arduino
       };
 
-      // Use compact JSON (no pretty printing) to reduce message size
+      // Use compact JSON (no pretty printing) to minimize message size
       const message = JSON.stringify(orderData);
       
       // Debug: Log message size and content
-      console.log(`📊 MQTT Message size: ${message.length} bytes`);
+      console.log(`📊 MQTT Message size: ${message.length} bytes (optimized for Arduino)`);
       console.log(`📄 MQTT Message content:`, message);
       
-      // Warn if message is getting large
-      if (message.length > 2000) {
-        console.log(`⚠️  Large message detected (${message.length} bytes) - may cause issues with small IoT devices`);
+      // Warn if message is still large (much lower threshold for ESP8266)
+      if (message.length > 1500) {
+        console.log(`⚠️  Large message detected (${message.length} bytes) - may cause ESP8266 memory issues`);
+      } else {
+        console.log(`✅ Message size optimal for ESP8266 (${message.length} bytes)`);
       }
       
       // Publish to the new order topic
@@ -172,9 +176,9 @@ class MQTTService {
           console.error('❌ Failed to publish new order:', error);
           console.error('❌ Error details:', error);
         } else {
-          console.log(`📤 Published new order to ${this.topics.NEW_ORDER}`);
-          console.log(`🍽️  Order ID: ${orderData.orderId} | Table: ${orderData.tableNumber}`);
-          console.log(`📏 Message published successfully (${message.length} bytes)`);
+          console.log(`📤 Published optimized order to ${this.topics.NEW_ORDER}`);
+          console.log(`🍽️  Order ID: ${orderData.orderId} | Table: ${orderData.tableNumber} | Items: ${orderData.items.length}`);
+          console.log(`📏 Optimized message: ${message.length} bytes (Arduino-friendly)`);
         }
       });
 

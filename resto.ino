@@ -37,8 +37,14 @@ WiFiClient espClient;
 PubSubClient mqtt(espClient);
 LiquidCrystal_I2C lcd(LCD_I2C_ADDR, 20, 4);
 
-// JSON storage: adjust if you expect huge queues (ESP8266 limited RAM)
-StaticJsonDocument<12288> queueDoc; // holds the array of orders
+// JSON storage: optimized for ESP8266 memory constraints
+StaticJsonDocument<6144> queueDoc; // reduced from 12288 to 6144 bytes
+
+// Memory monitoring
+void printMemoryStatus(const char* context) {
+  Serial.printf("📊 [%s] Free heap: %u bytes, Fragmentation: %u%%\n", 
+    context, ESP.getFreeHeap(), ESP.getHeapFragmentation());
+}
 
 // Button debounce
 const unsigned long DEBOUNCE_MS = 100; // Increased for better reliability
@@ -48,6 +54,12 @@ unsigned long lastDebounceDone = 0;
 unsigned long lastDebounceScroll = 0;
 bool donePressed = false;
 bool scrollPressed = false;
+
+// Track last button action times
+unsigned long lastDoneAction = 0;
+unsigned long lastScrollAction = 0;
+const unsigned long DONE_COOLDOWN   = 3000; // 3 seconds
+const unsigned long SCROLL_COOLDOWN = 1000; // 1 second
 
 // Scrolling state
 int itemScrollIndex = 0;
@@ -69,6 +81,9 @@ void testButtons(); // Test button hardware
 void setup() {
   Serial.begin(115200);
   delay(100);
+  
+  // Print initial memory status
+  printMemoryStatus("Startup");
 
   // LittleFS init
   if (!LittleFS.begin()) {
@@ -124,57 +139,33 @@ void setup() {
   // testButtons();
 }
 
-void loop() {
-  // Ensure WiFi (WiFiManager keeps credentials, WiFi reconnects automatically in background)
-  if (WiFi.status() != WL_CONNECTED) {
-    // optional: you could call WiFi.reconnect(); but WiFiManager/ESP stack usually handles it.
-  }
 
-  // MQTT reconnect / loop
+
+void loop() {
+  static unsigned long lastMemCheck = 0;
+  static int loopCount = 0;
+  
+  // Keep MQTT alive
   if (!mqtt.connected()) {
     connectMQTT();
   } else {
     mqtt.loop();
   }
 
-  // Button done (D5) debounce
-  bool readingDone = digitalRead(BUTTON_DONE_PIN);
-  if (readingDone != lastDoneState) {
-    lastDebounceDone = millis();
-  }
-  if ((millis() - lastDebounceDone) > DEBOUNCE_MS) {
-    if (readingDone != lastDoneState) {
-      lastDoneState = readingDone;
-      if (readingDone == LOW) { // Button pressed (active LOW)
-        donePressed = true;
-        Serial.println("DEBUG: Done button pressed!");
-      }
-    }
+  unsigned long now = millis();
+  
+  // Periodic memory monitoring (every 30 seconds)
+  if (now - lastMemCheck > 30000) {
+    lastMemCheck = now;
+    printMemoryStatus("Loop check");
   }
 
-  // Button scroll (D7) debounce
-  bool readingScroll = digitalRead(BUTTON_SCROLL_PIN);
-  if (readingScroll != lastScrollState) {
-    lastDebounceScroll = millis();
-  }
-  if ((millis() - lastDebounceScroll) > DEBOUNCE_MS) {
-    if (readingScroll != lastScrollState) {
-      lastScrollState = readingScroll;
-      if (readingScroll == LOW) { // Button pressed (active LOW)
-        scrollPressed = true;
-        Serial.println("DEBUG: Scroll button pressed!");
-      }
-    }
-  }
-
-  // handle done press
-  if (donePressed) {
-    donePressed = false;
-    Serial.println("DEBUG: Processing done button press");
+  // DONE button (D5)
+  if (digitalRead(BUTTON_DONE_PIN) == LOW && (now - lastDoneAction >= DONE_COOLDOWN)) {
+    lastDoneAction = now;
     if (!queueEmpty()) {
       JsonObject cur = getCurrentOrder();
       const char* oid = cur["orderId"] | "";
-      Serial.printf("DEBUG: Marking order %s as done\n", oid);
       if (strlen(oid) > 0) {
         publishOrderDone(oid);
       }
@@ -182,8 +173,6 @@ void loop() {
       itemScrollIndex = 0;
       displayCurrentOrder();
     } else {
-      // no orders - display message briefly
-      Serial.println("DEBUG: No orders to mark as done");
       lcd.clear();
       lcd.setCursor(0,0);
       lcd.print("No orders queued");
@@ -192,33 +181,27 @@ void loop() {
     }
   }
 
-  // handle scroll press
-  if (scrollPressed) {
-    scrollPressed = false;
-    Serial.println("DEBUG: Processing scroll button press");
+  // SCROLL button (D7)
+  if (digitalRead(BUTTON_SCROLL_PIN) == LOW && (now - lastScrollAction >= SCROLL_COOLDOWN)) {
+    lastScrollAction = now;
     if (!queueEmpty()) {
       JsonObject cur = getCurrentOrder();
       JsonArray items = cur["items"].as<JsonArray>();
       int itemCount = items.size();
-      Serial.printf("DEBUG: Item count: %d, current scroll index: %d\n", itemCount, itemScrollIndex);
       if (itemCount > 3) {
         int maxStart = itemCount - 3;
         itemScrollIndex++;
         if (itemScrollIndex > maxStart) itemScrollIndex = 0;
-        Serial.printf("DEBUG: New scroll index: %d\n", itemScrollIndex);
       } else {
-        itemScrollIndex = 0; // nothing to scroll
-        Serial.println("DEBUG: Not enough items to scroll");
+        itemScrollIndex = 0;
       }
       displayCurrentOrder();
-    } else {
-      Serial.println("DEBUG: No orders to scroll through");
     }
   }
 
-  // short small sleep to reduce CPU hogging
-  delay(10);
+  delay(10); // small sleep
 }
+
 
 // ---------- MQTT ----------
 
@@ -228,60 +211,83 @@ void connectMQTT() {
   if (millis() - lastAttempt < ATTEMPT_INTERVAL) return;
   lastAttempt = millis();
 
-  String clientId = "ESP-" + String(ESP.getChipId(), HEX);
+  // Use char buffer instead of String
+  char clientId[20];
+  snprintf(clientId, sizeof(clientId), "ESP-%06X", ESP.getChipId());
+  
+  printMemoryStatus("Before MQTT connect");
   Serial.print("Connecting to MQTT...");
+  
+  bool connected = false;
   if (strlen(MQTT_USER) > 0) {
-    if (mqtt.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
-      Serial.println("connected");
-      mqtt.subscribe(TOPIC_NEW);
-      Serial.printf("Subscribed to %s\n", TOPIC_NEW);
-    } else {
-      Serial.printf("failed, rc=%d\n", mqtt.state());
-    }
+    connected = mqtt.connect(clientId, MQTT_USER, MQTT_PASS);
   } else {
-    if (mqtt.connect(clientId.c_str())) {
-      Serial.println("connected");
-      mqtt.subscribe(TOPIC_NEW);
-      Serial.printf("Subscribed to %s\n", TOPIC_NEW);
-    } else {
-      Serial.printf("failed, rc=%d\n", mqtt.state());
-    }
+    connected = mqtt.connect(clientId);
+  }
+  
+  if (connected) {
+    Serial.println("connected");
+    mqtt.subscribe(TOPIC_NEW);
+    Serial.printf("Subscribed to %s\n", TOPIC_NEW);
+    printMemoryStatus("After MQTT connect");
+  } else {
+    Serial.printf("failed, rc=%d\n", mqtt.state());
   }
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  // parse payload as string
-  String msg;
-  msg.reserve(length + 1);
-  for (unsigned int i = 0; i < length; i++) msg += (char)payload[i];
-
-  Serial.print("MQTT message on ");
-  Serial.print(topic);
-  Serial.printf(" (Length: %u bytes): ", length);
-  Serial.println(msg);
+  // Check memory before processing
+  Serial.printf("📊 Free heap before processing: %u bytes\n", ESP.getFreeHeap());
   
-  // Debug: Check if message is too large
-  if (length > 3500) {
-    Serial.println("WARNING: Message size approaching JSON buffer limit!");
-  }
-
-  // parse JSON (message size may vary - increased for multi-item orders)
-  StaticJsonDocument<4096> doc; // Increased from 2048 to 4096 bytes
-  DeserializationError err = deserializeJson(doc, msg);
-  if (err) {
-    Serial.print("JSON parse error: ");
-    Serial.println(err.c_str());
-    Serial.printf("Message length was: %u bytes\n", length);
-    Serial.println("First 200 chars of message:");
-    Serial.println(msg.substring(0, 200));
+  // Bounds checking
+  if (length == 0) {
+    Serial.println("❌ Empty MQTT message received");
     return;
   }
   
+  if (length > 3000) { // Reduced limit for better memory management
+    Serial.printf("❌ Message too large: %u bytes (max 3000)\n", length);
+    return;
+  }
+
+  Serial.printf("📨 MQTT message on %s (Length: %u bytes)\n", topic, length);
+
+  // More efficient: create null-terminated char array directly
+  char* msgBuffer = (char*)malloc(length + 1);
+  if (!msgBuffer) {
+    Serial.println("❌ Failed to allocate memory for message");
+    return;
+  }
+  
+  memcpy(msgBuffer, payload, length);
+  msgBuffer[length] = '\0';
+  
+  // Debug: Show first part of message
+  Serial.print("📄 Message content: ");
+  if (length > 200) {
+    Serial.printf("%.200s... (truncated, full length: %u)\n", msgBuffer, length);
+  } else {
+    Serial.println(msgBuffer);
+  }
+
+  // parse JSON directly from char array (optimized buffer size)
+  StaticJsonDocument<3072> doc; // Reduced from 4096 to 3072 bytes
+  DeserializationError err = deserializeJson(doc, msgBuffer);
+  
+  // Free the message buffer immediately after parsing
+  free(msgBuffer);
+  
+  if (err) {
+    Serial.printf("❌ JSON parse error: %s\n", err.c_str());
+    Serial.printf("📊 Message length: %u bytes\n", length);
+    return;
+  }
+
   Serial.println("✅ JSON parsed successfully");
-  Serial.printf("📊 Free heap: %u bytes\n", ESP.getFreeHeap());
+  Serial.printf("📊 Free heap after parsing: %u bytes\n", ESP.getFreeHeap());
 
   if (!doc.containsKey("orderId")) {
-    Serial.println("No orderId found; ignoring");
+    Serial.println("❌ No orderId found; ignoring");
     return;
   }
 
@@ -291,14 +297,22 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   JsonArray items = doc["items"];
   Serial.printf("📋 Order: %s, Table: %d, Items: %d\n", orderId, tableNum, items.size());
 
-  // append to queueDoc array
+  // Check if we have space in queue (reduced limit for memory optimization)
   JsonArray arr = queueDoc.as<JsonArray>();
-  // create nested object and copy fields
+  if (arr.size() >= 5) { // Reduced from 10 to 5 orders max
+    Serial.println("⚠️ Queue full, removing oldest order");
+    arr.remove(0);
+    Serial.printf("📊 Queue size after removal: %d\n", arr.size());
+  }
+
+  // More efficient copying: create nested object and copy fields
   JsonObject newOrder = arr.createNestedObject();
   for (JsonPair kv : doc.as<JsonObject>()) {
     // copy values (supports nested items array)
     newOrder[kv.key()] = kv.value();
   }
+
+  Serial.printf("📊 Free heap after adding to queue: %u bytes\n", ESP.getFreeHeap());
 
   saveQueueToFile();
 
@@ -310,6 +324,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     itemScrollIndex = 0;
     displayCurrentOrder();
   }
+  
+  Serial.printf("✅ Order processed successfully. Queue size: %d\n", arr.size());
 }
 
 // ---------- queue persistence ----------
@@ -413,26 +429,29 @@ void displayCurrentOrder() {
   JsonObject cur = getCurrentOrder();
   int tableNum = cur["tableNumber"] | 0;
 
-  // Line 1: only table number
+  // Line 1: only table number - use char buffer instead of String
   lcd.setCursor(0,0);
-  String line1 = "Table: " + String(tableNum);
-  if (line1.length() > 20) line1 = line1.substring(0, 20);
+  char line1[21]; // 20 chars + null terminator
+  snprintf(line1, sizeof(line1), "Table: %d", tableNum);
   lcd.print(line1);
 
   // Lines 2-4: items starting at itemScrollIndex
   JsonArray items = cur["items"].as<JsonArray>();
   int itemCount = items.size();
+  char itemBuffer[21]; // Reuse buffer for each line
+  
   for (int r = 0; r < 3; ++r) {
     lcd.setCursor(0, r + 1);
     int idx = itemScrollIndex + r;
     if (idx < itemCount) {
       const char* name = items[idx]["name"] | "";
       int qty = items[idx]["quantity"] | 0;
-      String l = String(name) + " x" + String(qty);
-      if (l.length() > 20) l = l.substring(0, 20);
-      lcd.print(l);
+      
+      // Use snprintf instead of String concatenation
+      snprintf(itemBuffer, sizeof(itemBuffer), "%.15s x%d", name, qty);
+      lcd.print(itemBuffer);
     } else {
-      // clear line
+      // clear line efficiently
       lcd.print("                    ");
     }
   }
@@ -441,18 +460,22 @@ void displayCurrentOrder() {
 // ---------- publish done ----------
 
 void publishOrderDone(const char* orderId) {
-  StaticJsonDocument<128> doc;
+  StaticJsonDocument<64> doc; // Reduced from 128 to 64
   doc["orderId"] = orderId;
-  String out;
-  serializeJson(doc, out);
-  if (mqtt.connected()) {
-    if (mqtt.publish(TOPIC_DONE, out.c_str())) {
-      Serial.printf("Published done: %s\n", out.c_str());
+  
+  char jsonBuffer[80]; // Fixed-size buffer instead of String
+  size_t len = serializeJson(doc, jsonBuffer, sizeof(jsonBuffer));
+  
+  if (len > 0 && mqtt.connected()) {
+    if (mqtt.publish(TOPIC_DONE, jsonBuffer)) {
+      Serial.printf("Published done: %s\n", jsonBuffer);
     } else {
       Serial.println("Failed to publish done");
     }
-  } else {
+  } else if (!mqtt.connected()) {
     Serial.println("MQTT not connected; cannot publish done");
+  } else {
+    Serial.println("Failed to serialize done message");
   }
 }
 
