@@ -139,12 +139,14 @@ class MQTTService {
     }
 
     try {
-      // Prepare order data for IoT devices
+      // Prepare order data for IoT devices (optimized for size)
       const orderData = {
         orderId: order._id.toString(),
         tableNumber: order.tableNumber,
         items: order.items.map(item => ({
-          name: item.menuItem.name,
+          name: item.menuItem.name.length > 30 ? 
+                item.menuItem.name.substring(0, 30) + '...' : 
+                item.menuItem.name, // Truncate long names
           quantity: item.quantity,
           notes: item.notes || ''
         })),
@@ -152,15 +154,27 @@ class MQTTService {
         total: order.total
       };
 
-      const message = JSON.stringify(orderData, null, 2);
+      // Use compact JSON (no pretty printing) to reduce message size
+      const message = JSON.stringify(orderData);
+      
+      // Debug: Log message size and content
+      console.log(`📊 MQTT Message size: ${message.length} bytes`);
+      console.log(`📄 MQTT Message content:`, message);
+      
+      // Warn if message is getting large
+      if (message.length > 2000) {
+        console.log(`⚠️  Large message detected (${message.length} bytes) - may cause issues with small IoT devices`);
+      }
       
       // Publish to the new order topic
       this.client.publish(this.topics.NEW_ORDER, message, { qos: 1 }, (error) => {
         if (error) {
           console.error('❌ Failed to publish new order:', error);
+          console.error('❌ Error details:', error);
         } else {
           console.log(`📤 Published new order to ${this.topics.NEW_ORDER}`);
           console.log(`🍽️  Order ID: ${orderData.orderId} | Table: ${orderData.tableNumber}`);
+          console.log(`📏 Message published successfully (${message.length} bytes)`);
         }
       });
 
