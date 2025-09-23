@@ -19,7 +19,7 @@
         
         const result = await response.json();
         
-        if (result.success) {
+        if (result) {
           // Update cart count in header
           document.getElementById('cart-count').textContent = result.cartCount;
           
